@@ -1,0 +1,15 @@
+# Python cache files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# IDE and Editor settings
+.idea/
+.vscode/
+
+# Project specific
+.weibo_auth/
+output/
+suzhou_hangzhou_weibo_data.csv
+crawler.log
+test_cookie.py
