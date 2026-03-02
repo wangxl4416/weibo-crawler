@@ -166,6 +166,33 @@ FETCH_TOP_LEVEL_COMMENTS = True    # 一级评论
 FETCH_SUB_COMMENTS = True          # 楼中楼评论
 ```
 
+### 关系名单配置（粉丝/关注）
+
+```python
+# 是否抓取粉丝/关注详细名单（需要账号有权限访问）
+ENABLE_RELATIONS_INFO = True
+
+# 每个用户抓取的关系列表翻页上限（0=不限，内部有安全上限）
+MAX_FOLLOWERS_PAGES = 3   # 粉丝页数
+MAX_FOLLOWINGS_PAGES = 3  # 关注页数
+```
+
+#### 关系名单抓取数量怎么控制？
+
+- 只改这两个参数即可控制数据量：
+  `MAX_FOLLOWERS_PAGES`（粉丝）和 `MAX_FOLLOWINGS_PAGES`（关注）
+- 这是按“页数”限制，不是按“精确条数”限制
+- `0` 表示不限页，但程序有内部安全上限，避免异常导致无限抓取
+- 单页返回条数由微博接口决定（通常约 10~20 条），可按 `页数 × 单页条数` 估算总量
+
+示例：
+
+```python
+ENABLE_RELATIONS_INFO = True
+MAX_FOLLOWERS_PAGES = 5    # 预计抓取约 50~100 条粉丝
+MAX_FOLLOWINGS_PAGES = 8   # 预计抓取约 80~160 条关注
+```
+
 ### 数量控制配置
 
 ```python
@@ -201,7 +228,8 @@ output/
 │       ├── posts.csv
 │       ├── comments.csv
 │       ├── media.csv
-│       └── profiles.csv          # 用户主页信息
+│       ├── profiles.csv          # 用户主页信息
+│       └── relations.csv         # 粉丝/关注详细名单
 └── media/                         # 媒体文件
     ├── keyword/
     │   └── <author>/<post_id>/   # 按作者和帖子ID分类
@@ -258,6 +286,19 @@ output/
 | 简介 | 个人简介 |
 | 头像链接 | 头像图片URL |
 | 封面链接 | 封面图片URL |
+
+#### 用户关系 (relations.csv)
+| 字段名 | 说明 |
+|--------|------|
+| 用户ID | 被抓取用户UID |
+| 关系类型 | 粉丝 / 关注 |
+| 关系用户ID | 关系用户UID |
+| 关系用户昵称 | 关系用户名 |
+| 关系用户简介 | 关系用户简介 |
+| 关系用户是否认证 | 认证状态 |
+| 关系用户粉丝数 | 关系用户粉丝数 |
+| 关系用户关注数 | 关系用户关注数 |
+| 关系用户微博数 | 关系用户微博数 |
 
 ---
 

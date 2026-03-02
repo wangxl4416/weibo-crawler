@@ -9,6 +9,7 @@
       posts.csv / posts.jsonl
       media.csv / media.jsonl
       profiles.csv / profiles.jsonl
+      relations.csv / relations.jsonl
 """
 
 import asyncio
@@ -25,10 +26,11 @@ from .config import (
     MEDIA_COLUMNS,
     POST_COLUMNS,
     PROFILE_COLUMNS,
+    RELATION_COLUMNS,
     CrawlerConfig,
 )
 from .logger import get_logger
-from .models import CommentRecord, MediaRecord, PostInfo, UserProfile
+from .models import CommentRecord, MediaRecord, PostInfo, UserProfile, UserRelationRecord
 from .utils import normalize_media_url
 
 logger = get_logger("storage")
@@ -62,6 +64,7 @@ class CsvStorage:
         self._seen_comment_keys: Set[Tuple[str, str, str, str]] = set()
         self._seen_media_keys: Set[str] = set()
         self._seen_profile_keys: Set[str] = set()
+        self._seen_relation_keys: Set[Tuple[str, str, str]] = set()
         self._csv_header_checked: Set[str] = set()
         self._source_counts: Counter = Counter()
         self._source_post_counts: Counter = Counter()
@@ -71,6 +74,7 @@ class CsvStorage:
         self._total_posts_saved = 0
         self._total_media_saved = 0
         self._total_profiles_saved = 0
+        self._total_relations_saved = 0
         self._recent_post_urls: List[str] = []
         self._recent_user_ids: List[str] = []
 
@@ -100,6 +104,10 @@ class CsvStorage:
     @property
     def total_profiles_saved(self) -> int:
         return self._total_profiles_saved
+
+    @property
+    def total_relations_saved(self) -> int:
+        return self._total_relations_saved
 
     @property
     def output_file(self) -> str:
@@ -351,12 +359,14 @@ class CsvStorage:
         self._load_comments_history()
         self._load_media_history()
         self._load_profiles_history()
+        self._load_relations_history()
         logger.info(
-            "📚 历史数据加载完成: 帖子 %d | 评论 %d | 媒体 %d | 主页 %d",
+            "📚 历史数据加载完成: 帖子 %d | 评论 %d | 媒体 %d | 主页 %d | 关系 %d",
             len(self._seen_post_keys),
             len(self._seen_comment_keys),
             len(self._seen_media_keys),
             len(self._seen_profile_keys),
+            len(self._seen_relation_keys),
         )
 
     def _load_posts_history(self) -> None:
@@ -528,6 +538,50 @@ class CsvStorage:
         if self._seen_profile_keys:
             logger.info("✅ 已加载历史主页去重键: %d", len(self._seen_profile_keys))
 
+    def _load_relations_history(self) -> None:
+        def _ingest_row(row: Dict[str, Any]) -> None:
+            relation_type_raw = str(
+                row.get("relation_type")
+                or row.get("关系类型")
+                or ""
+            ).strip()
+            if relation_type_raw in {"粉丝", "followers"}:
+                relation_type = "followers"
+            elif relation_type_raw in {"关注", "followings", "following"}:
+                relation_type = "followings"
+            else:
+                relation_type = ""
+
+            source_uid = str(row.get("source_uid") or row.get("用户ID") or "").strip()
+            relation_uid = str(row.get("relation_uid") or row.get("关系用户ID") or "").strip()
+            if not source_uid or not relation_uid or not relation_type:
+                return
+            self._seen_relation_keys.add((source_uid, relation_type, relation_uid))
+
+        for file_path in self._iter_text_files("relations.csv"):
+            try:
+                with open(file_path, "r", encoding="utf-8-sig", newline="") as file_obj:
+                    reader = csv.DictReader(file_obj)
+                    for row in reader:
+                        _ingest_row(row)
+            except Exception as exc:
+                logger.warning("⚠️ 读取历史关系名单(CSV)失败: %s | %s", file_path, exc)
+
+        for file_path in self._iter_text_files("relations.jsonl"):
+            try:
+                with open(file_path, "r", encoding="utf-8") as file_obj:
+                    for line in file_obj:
+                        if not line.strip():
+                            continue
+                        row = json.loads(line)
+                        if isinstance(row, dict):
+                            _ingest_row(row)
+            except Exception as exc:
+                logger.warning("⚠️ 读取历史关系名单(JSON)失败: %s | %s", file_path, exc)
+
+        if self._seen_relation_keys:
+            logger.info("✅ 已加载历史关系名单去重键: %d", len(self._seen_relation_keys))
+
     def is_new_post(self, user_name: str, content: str) -> bool:
         """
         向后兼容：按“用户名 + 文本片段”去重。
@@ -682,6 +736,31 @@ class CsvStorage:
             self._total_profiles_saved += 1
             return True
 
+    async def save_user_relations(self, records: List[UserRelationRecord]) -> int:
+        if not records:
+            return 0
+
+        async with self._lock:
+            new_records = self._filter_new_relations(records)
+            if not new_records:
+                return 0
+
+            payload = self._build_payload(
+                data_kind="relations",
+                source_mode="user",
+                csv_rows=[item.to_csv_row() for item in new_records],
+                csv_columns=RELATION_COLUMNS,
+                json_rows=[item.to_dict() for item in new_records],
+            )
+            if not self._dispatch_payloads([payload]):
+                return 0
+
+            for item in new_records:
+                self._seen_relation_keys.add(item.dedup_key)
+            self._total_relations_saved += len(new_records)
+
+        return len(new_records)
+
     async def save(self, records: List[CommentRecord]) -> int:
         """向后兼容旧接口"""
         return await self.save_comments(records)
@@ -734,6 +813,20 @@ class CsvStorage:
             if not item.media_url:
                 continue
             if item.dedup_key in self._seen_media_keys:
+                continue
+            if item.dedup_key in batch_keys:
+                continue
+            batch_keys.add(item.dedup_key)
+            new_records.append(item)
+        return new_records
+
+    def _filter_new_relations(self, records: List[UserRelationRecord]) -> List[UserRelationRecord]:
+        new_records: List[UserRelationRecord] = []
+        batch_keys: Set[Tuple[str, str, str]] = set()
+        for item in records:
+            if not item.source_uid or not item.relation_uid:
+                continue
+            if item.dedup_key in self._seen_relation_keys:
                 continue
             if item.dedup_key in batch_keys:
                 continue

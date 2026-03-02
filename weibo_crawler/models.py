@@ -609,6 +609,146 @@ class MediaRecord:
 
 
 @dataclass
+class UserRelationRecord:
+    """用户粉丝/关注关系记录"""
+    source_uid: str
+    source_target: str
+    relation_type: str
+    relation_uid: str
+    relation_name: str
+    relation_gender: str
+    relation_location: str
+    relation_description: str
+    relation_verified: bool
+    relation_followers_count: int
+    relation_follow_count: int
+    relation_statuses_count: int
+    relation_profile_url: str
+    crawled_at: str
+
+    @property
+    def dedup_key(self) -> tuple[str, str, str]:
+        return (self.source_uid, self.relation_type, self.relation_uid)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+    def to_csv_row(self) -> Dict[str, Any]:
+        relation_type_text = "粉丝" if self.relation_type == "followers" else "关注"
+        return {
+            "来源目标": self.source_target,
+            "用户ID": self.source_uid,
+            "关系类型": relation_type_text,
+            "关系用户ID": self.relation_uid,
+            "关系用户昵称": self.relation_name,
+            "关系用户性别": self.relation_gender,
+            "关系用户地区": self.relation_location,
+            "关系用户简介": self.relation_description,
+            "关系用户是否认证": self.relation_verified,
+            "关系用户粉丝数": self.relation_followers_count,
+            "关系用户关注数": self.relation_follow_count,
+            "关系用户微博数": self.relation_statuses_count,
+            "关系用户主页链接": self.relation_profile_url,
+            "抓取时间": self.crawled_at,
+        }
+
+    @staticmethod
+    def _walk_for_key(node: Any, target_key: str, results: List[Any]) -> None:
+        if isinstance(node, dict):
+            for key, value in node.items():
+                if key == target_key:
+                    results.append(value)
+                UserRelationRecord._walk_for_key(value, target_key, results)
+        elif isinstance(node, list):
+            for item in node:
+                UserRelationRecord._walk_for_key(item, target_key, results)
+
+    @classmethod
+    def _pick_str(cls, scopes: List[Dict[str, Any]], keys: List[str]) -> str:
+        for scope in scopes:
+            if not isinstance(scope, dict):
+                continue
+            for key in keys:
+                value = scope.get(key)
+                if value not in (None, ""):
+                    return str(value).strip()
+
+        for scope in scopes:
+            if not isinstance(scope, dict):
+                continue
+            for key in keys:
+                results: List[Any] = []
+                cls._walk_for_key(scope, key, results)
+                for value in results:
+                    if value not in (None, ""):
+                        return str(value).strip()
+        return ""
+
+    @classmethod
+    def _pick_int(cls, scopes: List[Dict[str, Any]], keys: List[str]) -> int:
+        for scope in scopes:
+            if not isinstance(scope, dict):
+                continue
+            for key in keys:
+                value = scope.get(key)
+                if value is None:
+                    continue
+                parsed = parse_count(value)
+                if parsed > 0:
+                    return parsed
+
+        for scope in scopes:
+            if not isinstance(scope, dict):
+                continue
+            for key in keys:
+                results: List[Any] = []
+                cls._walk_for_key(scope, key, results)
+                for value in results:
+                    parsed = parse_count(value)
+                    if parsed > 0:
+                        return parsed
+        return 0
+
+    @classmethod
+    def from_api_data(
+        cls,
+        relation_data: Dict[str, Any],
+        relation_type: str,
+        source_uid: str,
+        source_target: str,
+    ) -> "UserRelationRecord":
+        if not isinstance(relation_data, dict):
+            relation_data = {}
+
+        user = relation_data.get("user")
+        if not isinstance(user, dict):
+            user = relation_data
+        scopes = [user, relation_data]
+        relation_uid = cls._pick_str(scopes, ["idstr", "id"])
+        relation_profile_url = f"https://weibo.com/u/{relation_uid}" if relation_uid else ""
+        normalized_type = str(relation_type or "").strip().lower()
+        if normalized_type not in {"followers", "followings"}:
+            normalized_type = "followings"
+
+        return cls(
+            source_uid=str(source_uid or "").strip(),
+            source_target=str(source_target or "").strip(),
+            relation_type=normalized_type,
+            relation_uid=relation_uid,
+            relation_name=cls._pick_str(scopes, ["screen_name", "name"]),
+            relation_gender=cls._pick_str(scopes, ["gender"]),
+            relation_location=cls._pick_str(scopes, ["location"]),
+            relation_description=cls._pick_str(scopes, ["description", "desc"]),
+            relation_verified=bool(user.get("verified") or False),
+            relation_followers_count=cls._pick_int(scopes, ["followers_count", "fans_count", "followers"]),
+            relation_follow_count=cls._pick_int(scopes, ["friends_count", "follow_count", "following_count"]),
+            relation_statuses_count=cls._pick_int(scopes, ["statuses_count", "mblog_num", "weibo_count"]),
+            relation_profile_url=relation_profile_url,
+            crawled_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        )
+
+
+@dataclass
 class UserProfile:
     """用户主页资料"""
     uid: str

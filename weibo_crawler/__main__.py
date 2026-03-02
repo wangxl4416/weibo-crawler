@@ -83,6 +83,16 @@ class CrawlerApp:
         )
         logger.info("👤 主页信息抓取: %s", self._config.profile_info_enabled)
         logger.info(
+            "🧑‍🤝‍🧑 关系名单抓取: %s | 粉丝页上限=%s | 关注页上限=%s",
+            self._config.relations_info_enabled,
+            str(self._config.max_followers_pages_enabled)
+            if self._config.max_followers_pages_enabled > 0
+            else "不限",
+            str(self._config.max_followings_pages_enabled)
+            if self._config.max_followings_pages_enabled > 0
+            else "不限",
+        )
+        logger.info(
             "📏 抓取上限: 每页帖子 %d | 每帖评论 %d | 每关键词帖子 %d | 每关键词评论 %d | 每用户翻页 %s | 每用户帖子 %d",
             self._config.request.max_posts_per_search_page,
             self._config.request.max_comments_per_post,
@@ -164,11 +174,12 @@ class CrawlerApp:
     def _log_final_summary(self) -> None:
         logger.info("")
         logger.info(
-            "🎉 采集完成: 评论 %d | 帖子 %d | 媒体 %d | 主页 %d",
+            "🎉 采集完成: 评论 %d | 帖子 %d | 媒体 %d | 主页 %d | 关系 %d",
             self._storage.total_comments_saved,
             self._storage.total_posts_saved,
             self._storage.total_media_saved,
             self._storage.total_profiles_saved,
+            self._storage.total_relations_saved,
         )
         for name, file_path in self._storage.output_summary.items():
             logger.info("📂 %-9s -> %s", name, os.path.abspath(file_path))

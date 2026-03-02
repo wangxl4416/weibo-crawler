@@ -26,6 +26,7 @@ from .user_config import (
     MEDIA_TYPE_MODE,
     ENABLE_PROFILE_MEDIA,
     ENABLE_PROFILE_INFO,
+    ENABLE_RELATIONS_INFO,
     ENABLE_COMMENTS_FOR_KEYWORD,
     ENABLE_COMMENTS_FOR_POST_URL,
     ENABLE_COMMENTS_FOR_USER,
@@ -33,6 +34,8 @@ from .user_config import (
     FETCH_SUB_COMMENTS,
     MAX_COMMENTS_PER_KEYWORD,
     MAX_COMMENTS_PER_POST,
+    MAX_FOLLOWERS_PAGES,
+    MAX_FOLLOWINGS_PAGES,
     MAX_POSTS_PER_KEYWORD,
     MAX_POSTS_PER_USER,
     MAX_USER_PAGES,
@@ -85,6 +88,8 @@ class RequestConfig:
     max_records_per_keyword: int = MAX_COMMENTS_PER_KEYWORD  # 兼容旧字段（等同关键词评论上限）
     max_user_pages: int = MAX_USER_PAGES
     max_posts_per_user: int = MAX_POSTS_PER_USER
+    max_followers_pages: int = MAX_FOLLOWERS_PAGES
+    max_followings_pages: int = MAX_FOLLOWINGS_PAGES
 
 
 @dataclass
@@ -126,6 +131,12 @@ class ProfileConfig:
 
 
 @dataclass
+class RelationConfig:
+    """粉丝/关注名单抓取配置"""
+    enable_relations_info: bool = ENABLE_RELATIONS_INFO
+
+
+@dataclass
 class CommentConfig:
     """评论抓取配置"""
     enable_for_keyword: bool = ENABLE_COMMENTS_FOR_KEYWORD
@@ -153,6 +164,7 @@ class CrawlerConfig:
     download: DownloadConfig = field(default_factory=DownloadConfig)
     media: MediaConfig = field(default_factory=MediaConfig)
     profile: ProfileConfig = field(default_factory=ProfileConfig)
+    relations: RelationConfig = field(default_factory=RelationConfig)
     comments: CommentConfig = field(default_factory=CommentConfig)
 
     concurrency: ConcurrencyConfig = field(default_factory=ConcurrencyConfig)
@@ -307,6 +319,10 @@ class CrawlerConfig:
         return bool(self.profile.enable_profile_info)
 
     @property
+    def relations_info_enabled(self) -> bool:
+        return bool(self.relations.enable_relations_info)
+
+    @property
     def fetch_comments_enabled(self) -> bool:
         return (
             (self.comments.enable_for_keyword or self.comments.enable_for_post_url or self.comments.enable_for_user)
@@ -345,6 +361,24 @@ class CrawlerConfig:
         - 0 : 不限（由调用方决定安全上限）
         """
         return max(0, int(self.request.max_user_pages or 0))
+
+    @property
+    def max_followers_pages_enabled(self) -> int:
+        """
+        粉丝列表翻页上限。
+        - >0: 按配置限制页数
+        - 0 : 不限（由调用方决定安全上限）
+        """
+        return max(0, int(self.request.max_followers_pages or 0))
+
+    @property
+    def max_followings_pages_enabled(self) -> int:
+        """
+        关注列表翻页上限。
+        - >0: 按配置限制页数
+        - 0 : 不限（由调用方决定安全上限）
+        """
+        return max(0, int(self.request.max_followings_pages or 0))
 
     def max_posts_for_source(self, source_mode: str) -> int:
         normalized = str(source_mode or "").strip().lower()
@@ -469,6 +503,23 @@ PROFILE_COLUMNS = [
     "视频累计播放量",
     "主页链接",
     "来源目标",
+    "抓取时间",
+]
+
+RELATION_COLUMNS = [
+    "来源目标",
+    "用户ID",
+    "关系类型",
+    "关系用户ID",
+    "关系用户昵称",
+    "关系用户性别",
+    "关系用户地区",
+    "关系用户简介",
+    "关系用户是否认证",
+    "关系用户粉丝数",
+    "关系用户关注数",
+    "关系用户微博数",
+    "关系用户主页链接",
     "抓取时间",
 ]
 
